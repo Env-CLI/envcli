@@ -7,7 +7,7 @@ KEY_FILE = CONFIG_DIR / "key"
 
 def get_or_create_key() -> bytes:
     """Get existing key or create a new one."""
-    CONFIG_DIR.mkdir(exist_ok=True)
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     if KEY_FILE.exists():
         with open(KEY_FILE, 'rb') as f:
             return f.read()

@@ -15,8 +15,8 @@ DEFAULT_CONFIG = {
 
 def ensure_config_dir():
     """Ensure the config directory exists."""
-    CONFIG_DIR.mkdir(exist_ok=True)
-    PROFILES_DIR.mkdir(exist_ok=True)
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    PROFILES_DIR.mkdir(parents=True, exist_ok=True)
 
 def load_config() -> Dict[str, Any]:
     """Load global configuration."""
