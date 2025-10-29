@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "envcli"
+version = "3.0.0"
+description = "Enterprise environment variable management CLI with AI assistance, governance, multi-cloud sync, CI/CD integration, and advanced analytics. Built with modern Python for teams and enterprises."
+authors = [
+    {name = "Your Name", email = "your.email@example.com"},
+]
+license = {text = "MIT"}
+requires-python = ">=3.11"
+dependencies = [
+    "typer",
+    "rich",
+    "python-dotenv",
+    "cryptography",
+    "pyyaml",
+    "requests",
+    "jsonschema",
+    "boto3",
+    "textual",
+    "hvac",
+    "PyNaCl",
+    "questionary",
+    "httpx",
+    "psutil",
+    "transformers",
+    "torch",
+    "reportlab",
+    "pandas",
+    "kubernetes",
+    "azure-identity",
+    "azure-keyvault-secrets",
+    "google-cloud-secret-manager",
+    "fastapi",
+    "uvicorn",
+    "streamlit",
+    "plotly",
+    "cryptography",
+    "pytest",
+    "pytest-asyncio",
+    "pytest-cov",
+    "pytest-mock",
+    "requests-mock",
+    "httpx",
+]
+
+[project.scripts]
+envcli = "envcli.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"
