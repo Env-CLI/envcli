@@ -72,7 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ```bash
 # Install from GitHub
-pip install git+https://github.com/Nom-nom-hub/env-cli.git
+pip install git+https://github.com/Env-CLI/envcli.git
 
 # Or download from releases
 pip install envcli-3.0.0-py3-none-any.whl
