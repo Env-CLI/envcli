@@ -8,15 +8,15 @@ A comprehensive environment variable management platform with AI-powered governa
 
 ```bash
 # Using pip
-pip install git+https://github.com/Nom-nom-hub/env-cli.git
+pip install git+https://github.com/Env-CLI/envcli.git
 
 # Using uv (faster)
-uv tool install git+https://github.com/Nom-nom-hub/env-cli.git
+uv tool install git+https://github.com/Env-CLI/envcli.git
 ```
 
 ### Install from Release
 
-Download the latest `.whl` file from [Releases](https://github.com/Nom-nom-hub/env-cli/releases) and install:
+Download the latest `.whl` file from [Releases](https://github.com/Env-CLI/envcli/releases) and install:
 
 ```bash
 pip install envcli-3.0.0-py3-none-any.whl
@@ -25,8 +25,8 @@ pip install envcli-3.0.0-py3-none-any.whl
 ### Development Installation
 
 ```bash
-git clone https://github.com/Nom-nom-hub/env-cli.git
-cd env-cli
+git clone https://github.com/Env-CLI/envcli.git
+cd envcli
 pip install -e .
 ```
 
