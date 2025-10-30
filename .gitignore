@@ -1,0 +1,85 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# EnvCLI specific
+.envcli/
+*.env
+*.env.local
+*.env.*.local
+.env.backup
+profiles/
+*.key
+*.pem
+
+# Access control (deprecated)
+generate_access_codes.py
+example_access_codes.txt
+src/envcli/access_control.py
+src/envcli/tui/screens/access_prompt.py
+
+# Documentation (generated)
+*.md.backup
+*_SUMMARY.md
+*_IMPLEMENTATION.md
+*_FEATURE.md
+*_PLAN.md
+*_PROGRESS.md
+*_QUICKSTART.md
+*_SETUP.md
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Distribution
+*.whl
+*.tar.gz

@@ -1,0 +1,4 @@
+{
+  "API_KEY": "prod_secret",
+  "REDIS_URL": "redis://prod"
+}
