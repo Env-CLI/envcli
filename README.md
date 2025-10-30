@@ -58,7 +58,7 @@ pip install kubernetes azure-identity azure-keyvault-secrets google-cloud-secret
 - Predictive analytics: Forecast environment issues before they occur
 - Risk assessment: Automated risk scoring and mitigation suggestions
 
-See [AI Provider Guide](docs/AI_PROVIDERS.md), [AI Safe Actions](docs/AI_SAFE_ACTIONS.md), and [Custom Rules](docs/AI_CUSTOM_RULES.md) for detailed configuration.
+See [AI Provider Guide](docs/AI_PROVIDERS.md), [AI Safe Actions](docs/AI_SAFE_ACTIONS.md), and [Custom Rules](docs/AI_CUSTOM_RULES.md) for detailed configuration. (docs created by ai for now till I have time)
 
 ### Enterprise-Grade Security
 
