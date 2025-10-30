@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 import typer
 from rich.console import Console
 from rich.table import Table
@@ -21,7 +21,7 @@ from .telemetry import TelemetryAnalyzer
 from .ai_assistant import AIAssistant
 from .audit_reporting import AuditReporter
 from .policy_engine import PolicyEngine
-from .rbac import RBACManager, Role, Permission, rbac_manager
+from .rbac import RBACManager, Role, Permission, rbac_manager, require_permission
 from .kubernetes_integration import KubernetesSecretSync, KubernetesConfigMapSync
 from .azure_integration import AzureKeyVaultSync
 from .gcp_integration import GCPSecretManagerSync
@@ -39,6 +39,111 @@ console = Console()
 def callback():
     """EnvCLI - Manage environment variables across projects."""
     pass
+
+# Authentication commands
+auth_app = typer.Typer()
+app.add_typer(auth_app, name="auth", help="User authentication and session management")
+
+@auth_app.command("login")
+def login(username: Optional[str] = typer.Argument(None, help="Username to login as")):
+    """Login as a user (password required)."""
+    try:
+        if not username:
+            username = typer.prompt("Enter username")
+        if not rbac_manager.is_enabled():
+            console.print("[red]✗ RBAC is disabled[/red]")
+            console.print("[dim]Enable with: envcli rbac quick-setup[/dim]")
+            raise typer.Exit(1)
+        password = typer.prompt("Password", hide_input=True)
+        if rbac_manager.login(username, password):
+            console.print(f"[green]✓[/green] Logged in as '{username}'")
+        else:
+            console.print(f"[red]✗[/red] Invalid credentials for user '{username}'")
+            raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+@auth_app.command("logout")
+def logout():
+    """Logout current user."""
+    try:
+        if rbac_manager.logout():
+            console.print("[green]✓[/green] Logged out successfully")
+        else:
+            console.print("[yellow]⚠️[/yellow] No user was logged in")
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+@auth_app.command("whoami")
+def whoami():
+    """Show current logged in user."""
+    try:
+        current_user = rbac_manager.get_current_user()
+        if current_user:
+            user_info = rbac_manager.rbac_data["users"].get(current_user, {})
+            role = user_info.get("role", "unknown")
+            login_time = rbac_manager.session_data.get("login_time", "unknown")
+            console.print(f"[green]Current user:[/green] {current_user}")
+            console.print(f"[green]Role:[/green] {role}")
+            console.print(f"[green]Login time:[/green] {login_time}")
+        else:
+            console.print("[yellow]Not logged in[/yellow]")
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+# Top-level auth convenience commands (aliases for `envcli auth ...`)
+@app.command("login")
+def login_cmd(username: Optional[str] = typer.Argument(None, help="Username to login as")):
+    """Login as a user (RBAC). Alias for: envcli auth login <username>."""
+    try:
+        if not username:
+            username = typer.prompt("Enter username")
+        if not rbac_manager.is_enabled():
+            console.print("[red]✗ RBAC is disabled[/red]")
+            console.print("[dim]Enable with: envcli rbac quick-setup[/dim]")
+            raise typer.Exit(1)
+        password = typer.prompt("Password", hide_input=True)
+        if rbac_manager.login(username, password):
+            console.print(f"[green]✓[/green] Logged in as '{username}'")
+        else:
+            console.print(f"[red]✗[/red] Invalid credentials for user '{username}'")
+            raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+@app.command("logout")
+def logout_cmd():
+    """Logout current user (RBAC). Alias for: envcli auth logout."""
+    try:
+        if rbac_manager.logout():
+            console.print("[green]✓[/green] Logged out successfully")
+        else:
+            console.print("[yellow]⚠️[/yellow] No user was logged in")
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+@app.command("whoami")
+def whoami_cmd():
+    """Show current logged in user (RBAC). Alias for: envcli auth whoami."""
+    try:
+        current_user = rbac_manager.get_current_user()
+        if current_user:
+            user_info = rbac_manager.rbac_data["users"].get(current_user, {})
+            role = user_info.get("role", "unknown")
+            login_time = rbac_manager.session_data.get("login_time", "unknown")
+            console.print(f"[green]Current user:[/green] {current_user}")
+            console.print(f"[green]Role:[/green] {role}")
+            console.print(f"[green]Login time:[/green] {login_time}")
+        else:
+            console.print("[yellow]Not logged in[/yellow]")
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
 
 # Local env management commands
 env_app = typer.Typer()
@@ -71,6 +176,7 @@ def list_env(
     console.print(table)
 
 @env_app.command("add")
+@require_permission(Permission.WRITE_PROFILE)
 def add_env(
     key: str = typer.Argument(..., help="Environment variable key"),
     value: str = typer.Argument(..., help="Environment variable value"),
@@ -83,6 +189,7 @@ def add_env(
     console.print(f"Added {key} to profile '{profile}'")
 
 @env_app.command("remove")
+@require_permission(Permission.WRITE_PROFILE)
 def remove_env(
     key: str = typer.Argument(..., help="Environment variable key"),
     profile: str = typer.Option(None, "--profile", "-p", help="Profile to use"),
@@ -94,6 +201,7 @@ def remove_env(
     console.print(f"Removed {key} from profile '{profile}'")
 
 @env_app.command("edit")
+@require_permission(Permission.WRITE_PROFILE)
 def edit_env(
     profile: str = typer.Option(None, "--profile", "-p", help="Profile to use"),
 ):
@@ -612,6 +720,97 @@ def load_shell_command(
     integration = ShellIntegration()
     commands = integration.inject_into_shell(profile)
     console.print(commands)
+
+@shell_app.command("export-rc")
+def export_to_rc_command(
+    profile: str = typer.Option(None, "--profile", "-p", help="Profile to export"),
+    force: bool = typer.Option(False, "--force", "-f", help="Force export without backup"),
+):
+    """Export environment variables to shell RC file (.bashrc/.zshrc)."""
+    profile = profile or get_current_profile()
+    try:
+        from .env_manager import EnvManager
+        import os
+        import shutil
+        from pathlib import Path
+        from datetime import datetime
+        
+        manager = EnvManager(profile)
+        env_vars = manager.load_env()
+        
+        if not env_vars:
+            console.print("[yellow]⚠️[/yellow] No environment variables to export")
+            return
+        
+        # Create export statements
+        export_lines = []
+        export_lines.append(f"# Environment variables for profile: {profile}")
+        export_lines.append(f"# Generated by EnvCLI on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        export_lines.append("")
+        
+        # Sort variables for consistent output
+        sorted_vars = sorted(env_vars.items())
+        
+        for var_name, var_value in sorted_vars:
+            # Escape special characters for shell
+            escaped_value = _escape_for_shell(var_value)
+            export_lines.append(f"export {var_name}={escaped_value}")
+        
+        export_lines.append("")
+        export_lines.append("# End of EnvCLI environment variables")
+        
+        # Determine shell and RC file
+        shell = os.environ.get('SHELL', '')
+        if 'zsh' in shell:
+            rc_file = Path.home() / '.zshrc'
+            shell_name = 'zsh'
+        elif 'bash' in shell:
+            rc_file = Path.home() / '.bashrc'
+            shell_name = 'bash'
+        else:
+            # Default to bashrc
+            rc_file = Path.home() / '.bashrc'
+            shell_name = 'bash'
+        
+        # Check if file exists and backup
+        backup_file = None
+        if rc_file.exists() and not force:
+            backup_file = rc_file.with_suffix(f'.bashrc.backup.{datetime.now().strftime("%Y%m%d_%H%M%S")}')
+            shutil.copy2(rc_file, backup_file)
+            console.print(f"[dim]📁 Backup created: {backup_file.name}[/dim]")
+        
+        # Append to RC file
+        with open(rc_file, 'a') as f:
+            f.write('\n' + '\n'.join(export_lines))
+        
+        console.print(f"[green]✓[/green] Exported {len(env_vars)} variables to {rc_file}")
+        console.print(f"[dim]🐚 Shell: {shell_name}[/dim]")
+        console.print()
+        console.print("[bold]Next steps:[/bold]")
+        console.print("  source ~/.bashrc  # or ~/.zshrc")
+        console.print("  # Or start a new terminal session")
+        
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+    
+def _escape_for_shell(value: str) -> str:
+    """Escape value for safe shell usage."""
+    if not value:
+        return '""'
+    
+    # Handle quotes and special characters
+    if '"' in value:
+        # Use single quotes and escape single quotes
+        value = value.replace("'", "'\"'\"'")
+        return f"'{value}'"
+    else:
+        # Use double quotes and escape special chars
+        value = value.replace('\\', '\\\\')
+        value = value.replace('"', '\\"')
+        value = value.replace('$', '\\$')
+        value = value.replace('`', '\\`')
+        return f'"{value}"'
 
 # TUI command
 @app.command("tui")
@@ -1463,9 +1662,45 @@ def enable_rbac():
     try:
         rbac_manager.enable_rbac()
         console.print("[green]✓[/green] RBAC enabled")
+
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
+
+@rbac_app.command("quick-setup")
+def rbac_quick_setup(username: Optional[str] = typer.Argument(None, help="Initial admin username")):
+    """Enable RBAC, create an initial admin user, and log in.
+
+    If USERNAME is omitted, you'll be prompted interactively.
+    """
+    try:
+        # Ensure RBAC is enabled
+        rbac_manager.enable_rbac()
+
+        # Ask for username if not provided
+        if not username:
+            username = typer.prompt("Admin username", default="admin")
+
+        # Ask for password and confirmation
+        password = typer.prompt("Admin password", hide_input=True)
+        confirm = typer.prompt("Confirm password", hide_input=True)
+        if password != confirm:
+            console.print("[red] Passwords do not match[/red]")
+            raise typer.Exit(1)
+
+        # Create/overwrite user as admin with password
+        rbac_manager.add_user(username, Role.ADMIN, added_by=username, password=password)
+
+        # Log in as that user
+        if rbac_manager.login(username, password):
+            console.print(f"[green]✓[/green] RBAC enabled, admin '{username}' created, and logged in")
+        else:
+            console.print(f"[red]✗[/red] Failed to log in as '{username}' after setup")
+            raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
 
 @rbac_app.command("disable")
 def disable_rbac():
@@ -1477,17 +1712,100 @@ def disable_rbac():
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
 
+@rbac_app.command("reset")
+def reset_rbac(
+    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation prompt")
+):
+    """Reset RBAC system to factory defaults (deletes all users, sessions, and audit logs)."""
+    try:
+        if not force:
+            console.print("[yellow]⚠️  WARNING:[/yellow] This will delete all RBAC data including:")
+            console.print("  • All users and their passwords")
+            console.print("  • All sessions (you will be logged out)")
+            console.print("  • All audit logs")
+            console.print("  • All custom role permissions")
+            console.print()
+            confirm = typer.confirm("Are you sure you want to reset RBAC?")
+            if not confirm:
+                console.print("[dim]Reset cancelled[/dim]")
+                raise typer.Exit(0)
+
+        if rbac_manager.reset_rbac():
+            console.print("[green]✓[/green] RBAC system reset to factory defaults")
+            console.print("[dim]Run 'envcli rbac quick-setup' to set up RBAC again[/dim]")
+        else:
+            console.print("[red]✗[/red] Failed to reset RBAC system")
+            raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
 @rbac_app.command("add-user")
 def add_rbac_user(
     username: str = typer.Argument(..., help="Username to add"),
     role: str = typer.Argument(..., help="Role: admin, member, guest"),
     added_by: str = typer.Option("admin", "--by", help="User performing the action"),
+    password: Optional[str] = typer.Option(None, "--password", help="Set initial password (will not echo)"),
 ):
     """Add a user with a specific role."""
     try:
         role_enum = Role(role.lower())
-        rbac_manager.add_user(username, role_enum, added_by)
+        rbac_manager.add_user(username, role_enum, added_by, password=password)
         console.print(f"[green]✓[/green] User '{username}' added with role '{role}'")
+        if not password:
+            console.print("[yellow]Note:[/yellow] No password set. User cannot log in until you run: envcli rbac set-password <username>")
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+@rbac_app.command("set-password")
+def set_rbac_password(
+    username: str = typer.Argument(..., help="Username to set password for"),
+    set_by: Optional[str] = typer.Option(None, "--by", help="Admin performing the action (defaults to current user)"),
+):
+    """Set or reset a user's password (admin-only)."""
+    try:
+        if not rbac_manager.is_enabled():
+            console.print("[red]✗ RBAC is disabled[/red]")
+            raise typer.Exit(1)
+        if not set_by:
+            set_by = rbac_manager.get_current_user() or "admin"
+        new_password = typer.prompt("New password", hide_input=True)
+        confirm = typer.prompt("Confirm password", hide_input=True)
+        if new_password != confirm:
+            console.print("[red]✗ Passwords do not match[/red]")
+            raise typer.Exit(1)
+        if rbac_manager.set_user_password(username, new_password, set_by):
+            console.print(f"[green]✓[/green] Password set for '{username}'")
+        else:
+            console.print(f"[red]✗[/red] Failed to set password for '{username}' (user not found)")
+            raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+@rbac_app.command("change-password")
+def change_rbac_password():
+    """Change your own password (must be logged in)."""
+    try:
+        if not rbac_manager.is_enabled():
+            console.print("[red]✗ RBAC is disabled[/red]")
+            raise typer.Exit(1)
+        current = rbac_manager.get_current_user()
+        if not current:
+            console.print("[red]✗ Not logged in. Run: envcli login[/red]")
+            raise typer.Exit(1)
+        old_password = typer.prompt("Current password", hide_input=True)
+        new_password = typer.prompt("New password", hide_input=True)
+        confirm = typer.prompt("Confirm new password", hide_input=True)
+        if new_password != confirm:
+            console.print("[red]✗ Passwords do not match[/red]")
+            raise typer.Exit(1)
+        if rbac_manager.change_password(current, old_password, new_password):
+            console.print("[green]✓[/green] Password changed")
+        else:
+            console.print("[red]✗[/red] Failed to change password (current password incorrect)")
+            raise typer.Exit(1)
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)

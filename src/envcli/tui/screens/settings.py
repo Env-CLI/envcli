@@ -213,7 +213,30 @@ class SettingsScreen(Container):
         )
         
         yield Static("", classes="section-divider")
-        
+
+        # Theme Section
+        yield Static("◵ Theme", classes="section-header")
+
+        from ..themes import ThemeManager
+        from ...config import CONFIG_DIR
+        theme_manager = ThemeManager(CONFIG_DIR)
+        current_theme = theme_manager.get_current_theme()
+
+        theme_info = Text()
+        theme_info.append("Current Theme: ", style="#757575")
+        theme_info.append(current_theme.replace("_", " ").title(), style="#64FFDA")
+        theme_info.append("\n\nvFO ", style="#2196F3")
+        theme_info.append(f"Choose from {len(theme_manager.get_available_themes())} beautiful themes. Restart required after changing theme.", style="#757575")
+        yield Static(theme_info, classes="setting-value")
+
+        # Theme Actions
+        yield Horizontal(
+            Button("Change Theme", variant="primary", id="change-theme-btn"),
+            classes="setting-actions"
+        )
+
+        yield Static("", classes="section-divider")
+
         # System Information Section
         yield Static("[ System Information", classes="section-header")
         
@@ -263,9 +286,11 @@ class SettingsScreen(Container):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses."""
         button_id = event.button.id
-        
+
         if button_id == "config-ai-btn":
             self.show_ai_config()
+        elif button_id == "change-theme-btn":
+            self.show_theme_selector()
         elif button_id == "toggle-remember-btn":
             self.toggle_remember_last()
         elif button_id == "toggle-analytics-btn":
@@ -278,6 +303,11 @@ class SettingsScreen(Container):
     def show_ai_config(self) -> None:
         """Show AI configuration dialog."""
         self.run_worker(self._mount_ai_config())
+
+    def show_theme_selector(self) -> None:
+        """Show theme selector."""
+        from .theme_selector import ThemeSelector
+        self.app.push_screen(ThemeSelector())
 
     def close_ai_config(self) -> None:
         """Close AI configuration dialog."""

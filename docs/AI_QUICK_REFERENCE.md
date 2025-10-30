@@ -216,7 +216,7 @@ envcli ai config --provider pattern-matching
 
 ## 📊 Example Output
 
-```
+```bash
 🤖 AI Analysis for Profile 'dev'
 Provider: OpenAI (gpt-4o-mini)
 
@@ -266,4 +266,4 @@ envcli ai disable
 
 ---
 
-**Print this card and keep it handy! 📄**
+**Save this card and keep it handy! 📄**

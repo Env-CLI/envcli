@@ -439,15 +439,7 @@ ProfileCreator.overlay {
     min-width: 15;
 }
 
-.creator-title {
-    width: 100%;
-    height: 2;
-    content-align: center middle;
-    background: #37474F;
-    color: #00E676;
-    text-style: bold;
-    margin-bottom: 1;
-}
+
 
 ProfileCreator Label {
     width: 100%;
@@ -1102,7 +1094,7 @@ STATUS_IOS = {
     "success": "+",
     "error": "X",
     "warning": "!",
-    "info": "vFO",
+    "info": "ℹ",
     "loading": "@",
     "synced": "@",
     "unsynced": "?",
