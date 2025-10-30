@@ -20,7 +20,7 @@ class EnvManager:
 
     def save_env(self, env_vars: Dict[str, str]):
         """Save environment variables to profile."""
-        PROFILES_DIR.mkdir(exist_ok=True)
+        PROFILES_DIR.mkdir(parents=True, exist_ok=True)
         with open(self.profile_file, 'w') as f:
             json.dump(env_vars, f, indent=2)
 

@@ -12,7 +12,7 @@ class PluginManager:
     def __init__(self):
         self.plugins: Dict[str, Any] = {}
         self.commands: Dict[str, Callable] = {}
-        PLUGINS_DIR.mkdir(exist_ok=True)
+        PLUGINS_DIR.mkdir(parents=True, exist_ok=True)
 
     def load_plugins(self):
         """Load all installed plugins."""

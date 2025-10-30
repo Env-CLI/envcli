@@ -19,8 +19,8 @@ class TeamManager:
     """Manage team collaboration features."""
 
     def __init__(self):
-        TEAM_CONFIG_DIR.mkdir(exist_ok=True)
-        TEAM_PROFILES_DIR.mkdir(exist_ok=True)
+        TEAM_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        TEAM_PROFILES_DIR.mkdir(parents=True, exist_ok=True)
         self.current_team: Optional[str] = None
 
     def create_team(self, team_name: str, admin_user: str = "admin") -> str:
