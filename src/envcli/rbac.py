@@ -3,13 +3,18 @@ Role-Based Access Control for EnvCLI teams.
 """
 
 import json
-from datetime import datetime
+import base64
+import hashlib
+import hmac
+import secrets
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Set, Optional, Any
 from enum import Enum
 from .config import CONFIG_DIR
 
 RBAC_FILE = CONFIG_DIR / "rbac.json"
+SESSION_FILE = CONFIG_DIR / "session.json"
 
 class Role(Enum):
     """User roles with different permission levels."""
@@ -33,12 +38,17 @@ class RBACManager:
 
     def __init__(self):
         self.rbac_data = self._load_rbac()
+        self.session_data = self._load_session()
 
     def _load_rbac(self) -> Dict[str, Any]:
         """Load RBAC configuration."""
         if RBAC_FILE.exists():
-            with open(RBAC_FILE, 'r') as f:
-                return json.load(f)
+            try:
+                with open(RBAC_FILE, 'r') as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, IOError):
+                # If file is corrupted, use defaults
+                pass
         return {
             "enabled": False,
             "users": {},
@@ -51,6 +61,23 @@ class RBACManager:
         RBAC_FILE.parent.mkdir(exist_ok=True)
         with open(RBAC_FILE, 'w') as f:
             json.dump(self.rbac_data, f, indent=2)
+
+    def _load_session(self) -> Dict[str, Any]:
+        """Load session data."""
+        if SESSION_FILE.exists():
+            try:
+                with open(SESSION_FILE, 'r') as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, IOError):
+                # If file is corrupted, use defaults
+                pass
+        return {"current_user": None, "login_time": None}
+
+    def _save_session(self):
+        """Save session data."""
+        SESSION_FILE.parent.mkdir(exist_ok=True)
+        with open(SESSION_FILE, 'w') as f:
+            json.dump(self.session_data, f, indent=2)
 
     def _get_default_permissions(self) -> Dict[str, List[str]]:
         """Get default role permissions."""
@@ -78,17 +105,124 @@ class RBACManager:
         self.rbac_data["enabled"] = False
         self._save_rbac()
 
-    def add_user(self, username: str, role: Role, added_by: str):
-        """Add a user with a specific role."""
+    def login(self, username: str, password: Optional[str] = None) -> bool:
+        """Log in a user. If a password is set for the user, it must be provided and valid."""
+        if not self.rbac_data.get("enabled", False):
+            return False
+
+        user = self.rbac_data.get("users", {}).get(username)
+        if not user:
+            return False
+
+        # Enforce password if configured for the user
+        password_record = user.get("password")
+        if password_record is not None:
+            if not password:
+                return False
+            if not self._verify_password(password, password_record):
+                return False
+        else:
+            # If no password is set for the user, deny login for security
+            return False
+
+        self.session_data["current_user"] = username
+        self.session_data["login_time"] = datetime.now().isoformat()
+        self._save_session()
+
+        # Update last active time
+        self.rbac_data["users"][username]["last_active"] = datetime.now().isoformat()
+        self._save_rbac()
+
+        self._audit_log("user_login", {"username": username}, username)
+        return True
+
+    def logout(self) -> bool:
+        """Log out current user."""
+        if not self.session_data.get("current_user"):
+            return False
+
+        username = self.session_data["current_user"]
+        self._audit_log("user_logout", {"username": username}, username)
+
+        self.session_data["current_user"] = None
+        self.session_data["login_time"] = None
+        self._save_session()
+        return True
+
+    def _hash_password(self, password: str, salt_b64: Optional[str] = None) -> Dict[str, Any]:
+        """Create a password hash with scrypt, falling back to PBKDF2.
+        Returns a dict with 'algo', 'salt', 'hash' and parameters.
+        """
+        if salt_b64:
+            salt = base64.b64decode(salt_b64)
+        else:
+            salt = secrets.token_bytes(16)
+        # Try scrypt first
+        try:
+            params = {"n": 2**14, "r": 8, "p": 1}
+            key = hashlib.scrypt(password.encode("utf-8"), salt=salt, n=params["n"], r=params["r"], p=params["p"], dklen=32)
+            return {
+                "algo": "scrypt",
+                "salt": base64.b64encode(salt).decode("ascii"),
+                "hash": base64.b64encode(key).decode("ascii"),
+                **params,
+            }
+        except Exception:
+            # Fallback to PBKDF2-HMAC-SHA256
+            iterations = 200_000
+            key = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations, dklen=32)
+            return {
+                "algo": "pbkdf2_sha256",
+                "salt": base64.b64encode(salt).decode("ascii"),
+                "hash": base64.b64encode(key).decode("ascii"),
+                "iterations": iterations,
+            }
+
+    def _verify_password(self, password: str, record: Dict[str, Any]) -> bool:
+        """Verify a password against a stored hash record (scrypt or PBKDF2)."""
+        try:
+            algo = record.get("algo", "scrypt")
+            salt_b64 = record.get("salt")
+            expected_b64 = record.get("hash")
+            salt = base64.b64decode(salt_b64)
+            expected = base64.b64decode(expected_b64)
+            if algo == "scrypt":
+                n = int(record.get("n", 2**14))
+                r = int(record.get("r", 8))
+                p = int(record.get("p", 1))
+                actual = hashlib.scrypt(password.encode("utf-8"), salt=salt, n=n, r=r, p=p, dklen=32)
+            elif algo == "pbkdf2_sha256":
+                iterations = int(record.get("iterations", 200_000))
+                actual = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations, dklen=32)
+            else:
+                return False
+            return hmac.compare_digest(actual, expected)
+        except Exception:
+            return False
+
+    def get_current_user(self) -> Optional[str]:
+        """Get currently logged in user."""
+        return self.session_data.get("current_user")
+
+    def is_logged_in(self) -> bool:
+        """Check if a user is logged in."""
+        return self.session_data.get("current_user") is not None
+
+    def add_user(self, username: str, role: Role, added_by: str, password: Optional[str] = None):
+        """Add a user with a specific role. Optionally set an initial password."""
         if not self.rbac_data["enabled"]:
             return
 
-        self.rbac_data["users"][username] = {
+        user_record: Dict[str, Any] = {
             "role": role.value,
             "added_by": added_by,
             "added_at": datetime.now().isoformat(),
-            "last_active": datetime.now().isoformat()
+            "last_active": datetime.now().isoformat(),
         }
+        if password:
+            user_record["password"] = self._hash_password(password)
+
+        self.rbac_data["users"][username] = user_record
         self._save_rbac()
         self._audit_log("user_added", {"username": username, "role": role.value}, added_by)
 
@@ -98,6 +232,32 @@ class RBACManager:
             del self.rbac_data["users"][username]
             self._save_rbac()
             self._audit_log("user_removed", {"username": username}, removed_by)
+
+    def set_user_password(self, username: str, new_password: str, set_by: str) -> bool:
+        """Set or reset a user's password (admin operation)."""
+        user = self.rbac_data.get("users", {}).get(username)
+        if not user:
+            return False
+        user["password"] = self._hash_password(new_password)
+        user["password_set_at"] = datetime.now().isoformat()
+        user["password_set_by"] = set_by
+        self._save_rbac()
+        self._audit_log("password_set", {"username": username}, set_by)
+        return True
+
+    def change_password(self, username: str, old_password: str, new_password: str) -> bool:
+        """Change user's own password after verifying the old one."""
+        user = self.rbac_data.get("users", {}).get(username)
+        if not user:
+            return False
+        record = user.get("password")
+        if not record or not self._verify_password(old_password, record):
+            return False
+        user["password"] = self._hash_password(new_password)
+        user["password_changed_at"] = datetime.now().isoformat()
+        self._save_rbac()
+        self._audit_log("password_changed", {"username": username}, username)
+        return True
 
     def change_user_role(self, username: str, new_role: Role, changed_by: str):
         """Change a user's role."""
@@ -183,6 +343,36 @@ class RBACManager:
         """Get audit log entries."""
         return self.rbac_data["audit_log"][-limit:]
 
+    def clear_old_audit_logs(self, days: int = 30) -> int:
+        """Clear audit log entries older than specified days.
+        
+        Args:
+            days: Number of days to keep logs for (default: 30)
+            
+        Returns:
+            Number of entries cleared
+        """
+        cutoff_date = datetime.now() - timedelta(days=days)
+        original_length = len(self.rbac_data["audit_log"])
+        
+        # Filter out old entries
+        self.rbac_data["audit_log"] = [
+            entry for entry in self.rbac_data["audit_log"]
+            if self._is_recent(entry.get("timestamp", ""), days)
+        ]
+        
+        cleared_count = original_length - len(self.rbac_data["audit_log"])
+        
+        if cleared_count > 0:
+            self._save_rbac()
+            self._audit_log("audit_logs_cleared", {
+                "days_kept": days,
+                "entries_cleared": cleared_count,
+                "remaining_entries": len(self.rbac_data["audit_log"])
+            }, "system")
+            
+        return cleared_count
+
     def _audit_log(self, action: str, details: Dict[str, Any], performed_by: str):
         """Add an entry to the audit log."""
         entry = {
@@ -214,6 +404,29 @@ class RBACManager:
         """Check if RBAC is enabled."""
         return self.rbac_data.get("enabled", False)
 
+    def reset_rbac(self) -> bool:
+        """Reset RBAC system to factory defaults (deletes all users, sessions, and audit logs)."""
+        try:
+            # Logout current user
+            self.logout()
+
+            # Reset RBAC data to defaults
+            self.rbac_data = {
+                "enabled": False,
+                "users": {},
+                "role_permissions": self._get_default_permissions(),
+                "audit_log": []
+            }
+            self._save_rbac()
+
+            # Reset session data
+            self.session_data = {"current_user": None, "login_time": None}
+            self._save_session()
+
+            return True
+        except Exception:
+            return False
+
 # Global RBAC manager instance
 rbac_manager = RBACManager()
 
@@ -224,12 +437,30 @@ def require_permission(permission: Permission):
             if not rbac_manager.is_enabled():
                 return func(*args, **kwargs)
 
-            # Get current user (this would need to be implemented based on your auth system)
-            current_user = kwargs.get("current_user") or "unknown"
+            # Get current user from session
+            current_user = rbac_manager.get_current_user()
+            if not current_user:
+                from rich.console import Console
+                console = Console()
+                console.print("[red]✗ Not logged in[/red]")
+                console.print("[dim]RBAC is enabled. Please log in first:[/dim]")
+                console.print("[yellow]  envcli login[/yellow]")
+                console.print()
+                console.print("[dim]Or set up RBAC if you haven't:[/dim]")
+                console.print("[yellow]  envcli rbac quick-setup[/yellow]")
+                import typer
+                raise typer.Exit(1)
 
             if rbac_manager.check_permission(current_user, permission):
                 return func(*args, **kwargs)
             else:
-                raise PermissionError(f"Permission denied: {permission.value}")
+                from rich.console import Console
+                console = Console()
+                console.print(f"[red]✗ Permission denied[/red]")
+                console.print(f"[dim]User '{current_user}' does not have permission: {permission.value}[/dim]")
+                console.print()
+                console.print("[dim]Contact your administrator to grant you the required permissions.[/dim]")
+                import typer
+                raise typer.Exit(1)
         return wrapper
     return decorator

@@ -15,6 +15,57 @@ from ...config import get_current_profile
 class AuditScreen(Container):
     """Audit logs management screen."""
 
+    DEFAULT_CSS = """
+    AuditScreen {
+        background: #0E141B;
+        padding: 1 2;
+    }
+
+    .confirm-dialog {
+        background: #1A2332;
+        border: thick #FFB300;
+        padding: 2;
+        width: 60%;
+        height: auto;
+        align-horizontal: center;
+        align-vertical: middle;
+    }
+
+    .confirm-title {
+        color: #FFB300;
+        text-style: bold;
+        text-align: center;
+        margin-bottom: 1;
+    }
+
+    .confirm-message {
+        text-align: center;
+        margin-bottom: 1;
+    }
+
+    .confirm-warning {
+        color: #FF5252;
+        text-style: bold;
+        text-align: center;
+        margin-bottom: 2;
+    }
+
+    .confirm-buttons {
+    align-horizontal: center;
+        align-vertical: middle;
+    }
+
+    .confirm-buttons Button {
+        margin: 0 1;
+        min-width: 15;
+    }
+
+    .audit-input {
+        margin: 1 0;
+        width: 100%;
+    }
+    """
+
     def __init__(self):
         super().__init__()
         self.rbac_manager = RBACManager()
@@ -92,6 +143,7 @@ class AuditScreen(Container):
             with Horizontal(classes="button-row"):
                 yield Button("📄 Export to JSON", id="export-json-btn", variant="primary")
                 yield Button("📊 Export to CSV", id="export-csv-btn", variant="primary")
+                yield Button("📤 Import", id="import-btn", variant="success")
                 yield Button("🗑️ Clear Old Logs", id="clear-old-logs-btn", variant="error")
 
     def on_mount(self) -> None:
@@ -248,7 +300,16 @@ class AuditScreen(Container):
         """Handle button presses."""
         button_id = event.button.id
 
-        if button_id == "apply-filters-btn":
+        if button_id == "confirm-clear-btn":
+            await self._confirm_clear_operation()
+        elif button_id == "cancel-clear-btn":
+            # Remove confirmation dialog
+            try:
+                dialog = self.query_one("#confirm-clear-dialog", Vertical)
+                await dialog.remove()
+            except:
+                pass
+        elif button_id == "apply-filters-btn":
             await self._apply_filters_action()
         elif button_id == "clear-filters-btn":
             await self._clear_filters()
@@ -258,6 +319,12 @@ class AuditScreen(Container):
             await self._export_json()
         elif button_id == "export-csv-btn":
             await self._export_csv()
+        elif button_id == "import-btn":
+            await self._import_data()
+        elif button_id == "confirm-import-btn":
+            await self._confirm_import()
+        elif button_id == "cancel-import-btn":
+            await self._cancel_import()
         elif button_id == "clear-old-logs-btn":
             await self._clear_old_logs()
 
@@ -321,16 +388,173 @@ class AuditScreen(Container):
                         self._format_details(entry.get("details", {}))
                     ])
 
-            self.notify(f"✅ Exported {len(filtered_logs)} entries to {export_file}", severity="information")
+            self.notify(f"Exported {len(filtered_logs)} entries to {export_file}", severity="information")
         except Exception as e:
-            self.notify(f"❌ Export failed: {e}", severity="error")
+            self.notify(f"Export failed: {e}", severity="error")
 
     async def _clear_old_logs(self) -> None:
-        """Clear old audit log entries."""
-        self.notify("⚠️ Clear old logs feature requires confirmation - not implemented in TUI", severity="warning")
+        """Clear old audit log entries with confirmation."""
+        try:
+        # Show confirmation dialog
+            
+            # Create confirmation dialog
+            dialog = Vertical(id="confirm-clear-dialog", classes="confirm-dialog")
+            dialog.mount(Label("⚠️ Confirm Clear Old Audit Logs", classes="confirm-title"))
+            dialog.mount(Label("This will permanently delete audit log entries older than 30 days.", classes="confirm-message"))
+            dialog.mount(Label("This action cannot be undone.", classes="confirm-warning"))
+            
+            button_row = Horizontal(classes="confirm-buttons")
+            button_row.mount(Button("🗑️ Delete", id="confirm-clear-btn", variant="error"))
+            button_row.mount(Button("❌ Cancel", id="cancel-clear-btn", variant="default"))
+            dialog.mount(button_row)
+            
+            # Mount dialog
+            await self.mount(dialog)
+            
+        except Exception as e:
+            self.notify(f"❌ Failed to show confirmation: {e}", severity="error")
+    
+    async def _confirm_clear_operation(self) -> None:
+        """Execute the clear operation after confirmation."""
+        try:
+            # Clear logs older than 30 days
+            cleared_count = self.rbac_manager.clear_old_audit_logs(days=30)
+            
+            # Remove confirmation dialog
+            try:
+                dialog = self.query_one("#confirm-clear-dialog", Vertical)
+                await dialog.remove()
+            except:
+                pass
+            
+            if cleared_count > 0:
+                self.notify(f"✅ Cleared {cleared_count} old audit log entries", severity="information")
+                # Refresh the display
+                await self._refresh_audit()
+            else:
+                self.notify("ℹ️ No old audit logs to clear", severity="information")
+                
+        except Exception as e:
+            self.notify(f"❌ Failed to clear audit logs: {e}", severity="error")
+            self.app.log(f"Error clearing audit logs: {e}")
 
     def _update_status(self) -> None:
         """Update the audit status display."""
         status_widget = self.query_one("#audit-status-text", Static)
         status_widget.update(self._get_audit_status())
+
+    async def _confirm_import(self) -> None:
+        """Execute the import operation."""
+        try:
+            # Get file path from input
+            file_input = self.query_one("#import-file-path", Input)
+            file_path_str = file_input.value.strip()
+
+            if not file_path_str:
+                self.notify("❌ Please enter a file path", severity="error")
+                return
+
+            from pathlib import Path
+            import json
+            import csv
+            from datetime import datetime
+
+            file_path = Path(file_path_str).expanduser()
+
+            if not file_path.exists():
+                self.notify(f"❌ File not found: {file_path}", severity="error")
+                return
+
+            # Read and parse the file
+            imported_entries = []
+
+            if file_path.suffix.lower() == '.json':
+                # Import from JSON
+                with open(file_path, 'r') as f:
+                    data = json.load(f)
+
+                if isinstance(data, list):
+                    imported_entries = data
+                else:
+                    self.notify("❌ JSON file must contain an array of audit entries", severity="error")
+                    return
+
+            elif file_path.suffix.lower() == '.csv':
+                # Import from CSV
+                with open(file_path, 'r', newline='') as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        # Convert CSV row to audit entry format
+                        entry = {
+                            "timestamp": row.get("Timestamp", datetime.now().isoformat()),
+                            "action": row.get("Action", "imported"),
+                            "performed_by": row.get("Performed By", "unknown"),
+                            "details": {}
+                        }
+
+                        # Parse details from Details column if it exists
+                        details_str = row.get("Details", "")
+                        if details_str and details_str != "N/A":
+                            try:
+                                # Try to parse as JSON first
+                                entry["details"] = json.loads(details_str)
+                            except:
+                                # If not JSON, store as string
+                                entry["details"] = {"description": details_str}
+
+                        imported_entries.append(entry)
+            else:
+                self.notify("❌ Unsupported file format. Use .json or .csv files", severity="error")
+                return
+
+            # Validate and import entries
+            valid_entries = []
+            for entry in imported_entries:
+                # Validate required fields
+                if not all(key in entry for key in ["timestamp", "action", "performed_by", "details"]):
+                    continue  # Skip invalid entries
+
+                # Ensure timestamp is valid
+                try:
+                    datetime.fromisoformat(entry["timestamp"])
+                except:
+                    entry["timestamp"] = datetime.now().isoformat()  # Use current time for invalid timestamps
+
+                valid_entries.append(entry)
+
+            if not valid_entries:
+                self.notify("❌ No valid audit entries found in file", severity="error")
+                return
+
+            # Add entries to audit log
+            for entry in valid_entries:
+                # Add directly to the audit log (preserving original timestamps)
+                self.rbac_manager.rbac_data["audit_log"].append(entry)
+
+            # Keep only last 1000 entries and save
+            self.rbac_manager.rbac_data["audit_log"] = self.rbac_manager.rbac_data["audit_log"][-1000:]
+            self.rbac_manager._save_rbac()
+
+            # Remove import dialog
+            try:
+                dialog = self.query_one("#import-dialog", Vertical)
+                await dialog.remove()
+            except:
+                pass
+
+            # Refresh display and show success
+            await self._refresh_audit()
+            self.notify(f"✅ Imported {len(valid_entries)} audit entries", severity="information")
+
+        except Exception as e:
+            self.notify(f"❌ Import failed: {e}", severity="error")
+            self.app.log(f"Error importing audit logs: {e}")
+
+    async def _cancel_import(self) -> None:
+        """Cancel the import operation."""
+        try:
+            dialog = self.query_one("#import-dialog", Vertical)
+            await dialog.remove()
+        except:
+            pass
 

@@ -13,16 +13,56 @@ class EnvManager:
 
     def load_env(self) -> Dict[str, str]:
         """Load environment variables from profile."""
-        if self.profile_file.exists():
-            with open(self.profile_file, 'r') as f:
-                return json.load(f)
-        return {}
+        if not self.profile_file.exists():
+            return {}
+
+        # Read file content
+        with open(self.profile_file, 'rb') as f:
+            content = f.read()
+
+        # Try to decode as plain JSON first
+        try:
+            data = json.loads(content.decode('utf-8'))
+            return data
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            # File might be encrypted, try decryption
+            try:
+                import tempfile
+                import os
+                from .encryption import decrypt_file
+
+                # Create temp file
+                with tempfile.NamedTemporaryFile(mode='w+', suffix='.json', delete=False) as temp_file:
+                    temp_path = temp_file.name
+
+                try:
+                    # Copy encrypted content to temp file for decryption
+                    with open(temp_path, 'wb') as f:
+                        f.write(content)
+
+                    # Decrypt in place
+                    decrypt_file(temp_path)
+
+                    # Load decrypted content
+                    with open(temp_path, 'r') as f:
+                        data = json.load(f)
+
+                    return data
+                finally:
+                    # Clean up temp file
+                    if os.path.exists(temp_path):
+                        os.unlink(temp_path)
+            except Exception:
+                # If decryption fails, return empty dict
+                return {}
 
     def save_env(self, env_vars: Dict[str, str]):
         """Save environment variables to profile."""
         PROFILES_DIR.mkdir(parents=True, exist_ok=True)
-        with open(self.profile_file, 'w') as f:
-            json.dump(env_vars, f, indent=2)
+        # Use binary mode to handle encrypted files later
+        with open(self.profile_file, 'wb') as f:
+            json_data = json.dumps(env_vars, indent=2)
+            f.write(json_data.encode('utf-8'))
 
     def list_env(self, mask: bool = True) -> Dict[str, str]:
         """List all environment variables."""

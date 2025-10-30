@@ -4,8 +4,11 @@ from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.widgets import Static, Button, Input, Label
 from textual.message import Message
+from textual.screen import ModalScreen
 from rich.text import Text
 from typing import Dict, Optional
+import json
+from pathlib import Path
 
 from ...env_manager import EnvManager
 from ...config import get_current_profile
@@ -128,6 +131,141 @@ class VariableList(Container):
 
 class VariablesScreen(Container):
     """Main variables management screen."""
+    
+    DEFAULT_CSS = """
+    VariablesScreen {
+        height: 100%;
+        overflow-y: auto;
+    }
+
+    VariablesScreen .screen-title {
+        text-align: center;
+        text-style: bold;
+        color: $primary;
+        margin-bottom: 1;
+        height: 3;
+    }
+
+    VariablesScreen .stats-bar {
+        background: $surface;
+        padding: 1 2;
+        margin-bottom: 1;
+        height: 3;
+    }
+
+    VariablesScreen .action-bar {
+        height: 3;
+        margin-bottom: 1;
+    }
+
+    VariablesScreen .action-bar Button {
+        margin-right: 1;
+    }
+
+    VariablesScreen .content-area {
+        height: 1fr;
+        overflow-y: auto;
+    }
+
+    VariablesScreen .search-input {
+        margin-bottom: 1;
+    }
+
+    VariablesScreen VariableList {
+        height: 1fr;
+    }
+
+    VariablesScreen .variable-list {
+        height: 1fr;
+        padding: 1 2;
+    }
+
+    VariablesScreen VariableRow {
+        height: 3;
+        background: $surface;
+        margin-bottom: 1;
+        padding: 1;
+        align: center middle;
+    }
+
+    VariablesScreen VariableRow .var-key {
+        width: 30%;
+        text-align: left;
+        color: $primary;
+    }
+
+    VariablesScreen VariableRow .var-value {
+        width: 40%;
+        text-align: left;
+        color: $success;
+    }
+
+    VariablesScreen VariableRow .var-value-masked {
+        width: 40%;
+        text-align: left;
+        color: $warning;
+    }
+
+    VariablesScreen VariableRow .var-btn {
+        width: 15%;
+        margin-left: 1;
+    }
+
+    VariablesScreen VariableEditor {
+        align: center middle;
+    }
+
+    VariablesScreen VariableEditor > Container {
+        width: 60%;
+        background: $surface;
+        border: thick $primary;
+        padding: 1 2;
+    }
+
+    VariablesScreen .editor-title {
+        text-align: center;
+        text-style: bold;
+        color: $primary;
+        margin-bottom: 1;
+        height: 2;
+    }
+
+    ImportDialog, ExportDialog {
+        align: center middle;
+    }
+
+    ImportDialog > Container, ExportDialog > Container {
+        width: 60%;
+        background: $surface;
+        border: thick $primary;
+        padding: 1 2;
+    }
+
+    ImportDialog .dialog-title, ExportDialog .dialog-title {
+        text-align: center;
+        text-style: bold;
+        color: $primary;
+        margin-bottom: 1;
+        height: 3;
+    }
+
+    ImportDialog Label, ExportDialog Label {
+        margin-bottom: 1;
+    }
+
+    ImportDialog Input, ExportDialog Input {
+        margin-bottom: 1;
+    }
+
+    ImportDialog .dialog-actions, ExportDialog .dialog-actions {
+        height: 3;
+        margin-top: 1;
+    }
+
+    ImportDialog .dialog-actions Button, ExportDialog .dialog-actions Button {
+        margin-right: 1;
+    }
+    """
     
     def __init__(self, profile: Optional[str] = None):
         super().__init__()
@@ -298,8 +436,285 @@ class VariablesScreen(Container):
     
     def show_import_dialog(self) -> None:
         """Show import dialog."""
-        self.app.notify("Import - Coming soon!", severity="information")
+        self.app.push_screen(ImportDialog(self.manager, self.refresh_variables))
 
     def show_export_dialog(self) -> None:
         """Show export dialog."""
-        self.app.notify("Export - Coming soon!", severity="information")
+        self.app.push_screen(ExportDialog(self.manager))
+
+
+class ImportDialog(ModalScreen):
+    """Modal dialog for importing variables."""
+
+    BINDINGS = [
+        ("escape", "dismiss", "Close"),
+    ]
+
+    def __init__(self, manager: EnvManager, on_success_callback):
+        super().__init__()
+        self.manager = manager
+        self.on_success_callback = on_success_callback
+
+    def compose(self) -> ComposeResult:
+        """Compose the import dialog."""
+        with Vertical():
+            yield Static("📥 Import Variables", classes="dialog-title")
+            
+            yield Label("Select file to import:")
+            yield Input(
+                placeholder="Enter path to file (e.g., /path/to/env.json or /path/to/.env)",
+                id="import-file-input"
+            )
+            
+            yield Label("Import format:")
+            yield Input(
+                placeholder="env, json, or yaml",
+                value="auto",
+                id="import-format-input"
+            )
+            
+            yield Label("Import mode:")
+            yield Input(
+                placeholder="merge (add new, keep existing) or replace (overwrite all)",
+                value="merge",
+                id="import-mode-input"
+            )
+            
+            with Horizontal(classes="dialog-actions"):
+                yield Button("📥 Import", id="confirm-import-btn", variant="success")
+                yield Button("❌ Cancel", id="cancel-import-btn", variant="error")
+    
+    def action_dismiss(self) -> None:
+        """Dismiss the modal."""
+        self.dismiss()
+    
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button presses."""
+        button_id = event.button.id
+
+        if button_id == "confirm-import-btn":
+            self._perform_import()
+        elif button_id == "cancel-import-btn":
+            self.dismiss()
+    
+    def _perform_import(self) -> None:
+        """Perform the import operation."""
+        try:
+            file_input = self.query_one("#import-file-input", Input)
+            format_input = self.query_one("#import-format-input", Input)
+            mode_input = self.query_one("#import-mode-input", Input)
+            
+            file_path = file_input.value.strip()
+            format_type = format_input.value.strip().lower() or "auto"
+            import_mode = mode_input.value.strip().lower() or "merge"
+            
+            if not file_path:
+                self.notify("Please enter a file path", severity="error")
+                return
+            
+            # Convert to Path object
+            path = Path(file_path)
+            if not path.exists():
+                self.notify(f"File not found: {file_path}", severity="error")
+                return
+            
+            # Auto-detect format if not specified
+            if format_type == "auto":
+                if path.suffix.lower() in ['.json']:
+                    format_type = "json"
+                elif path.suffix.lower() in ['.yaml', '.yml']:
+                    format_type = "yaml"
+                elif path.name.startswith('.env') or path.name.lower() == '.env':
+                    format_type = "env"
+                else:
+                    # Try to detect by content
+                    try:
+                        with open(path, 'r') as f:
+                            content = f.read().strip()
+                            if content.startswith('{') or content.startswith('['):
+                                format_type = "json"
+                            elif '=' in content and '\n' in content:
+                                format_type = "env"
+                            else:
+                                format_type = "env"  # default
+                    except:
+                        format_type = "env"  # fallback
+            
+            # Perform import based on mode
+            if import_mode == "replace":
+                # Load all variables from file
+                if format_type == "json":
+                    with open(path, 'r') as f:
+                        imported_vars = json.load(f)
+                elif format_type == "yaml":
+                    try:
+                        import yaml
+                        with open(path, 'r') as f:
+                            imported_vars = yaml.safe_load(f)
+                    except ImportError:
+                        self.notify("PyYAML not installed - cannot import YAML files", severity="error")
+                        return
+                else:  # env format
+                    imported_vars = {}
+                    with open(path, 'r') as f:
+                        for line in f:
+                            line = line.strip()
+                            if line and not line.startswith('#') and '=' in line:
+                                key, value = line.split('=', 1)
+                                imported_vars[key.strip()] = value.strip()
+                
+                # Save all imported variables (replace mode)
+                self.manager.save_env(imported_vars)
+                self.notify(f"✓ Imported {len(imported_vars)} variables from {file_path} (replace mode)", severity="information")
+                
+            else:  # merge mode
+                # Load existing variables
+                existing_vars = self.manager.load_env()
+                
+                # Load variables from file
+                if format_type == "json":
+                    with open(path, 'r') as f:
+                        imported_vars = json.load(f)
+                elif format_type == "yaml":
+                    try:
+                        import yaml
+                        with open(path, 'r') as f:
+                            imported_vars = yaml.safe_load(f)
+                    except ImportError:
+                        self.notify("PyYAML not installed - cannot import YAML files", severity="error")
+                        return
+                else:  # env format
+                    imported_vars = {}
+                    with open(path, 'r') as f:
+                        for line in f:
+                            line = line.strip()
+                            if line and not line.startswith('#') and '=' in line:
+                                key, value = line.split('=', 1)
+                                imported_vars[key.strip()] = value.strip()
+                
+                # Merge: imported vars override existing ones
+                merged_vars = {**existing_vars, **imported_vars}
+                self.manager.save_env(merged_vars)
+                
+                new_count = len(imported_vars)
+                self.notify(f"✓ Imported {new_count} variables from {file_path} (merge mode)", severity="information")
+            
+            # Call success callback
+            self.on_success_callback()
+            
+            # Close modal
+            self.dismiss()
+            
+        except Exception as e:
+            self.notify(f"Import failed: {e}", severity="error")
+
+
+class ExportDialog(ModalScreen):
+    """Modal dialog for exporting variables."""
+
+    BINDINGS = [
+        ("escape", "dismiss", "Close"),
+    ]
+
+    def __init__(self, manager: EnvManager):
+        super().__init__()
+        self.manager = manager
+
+    def compose(self) -> ComposeResult:
+        """Compose the export dialog."""
+        with Vertical():
+            yield Static("📤 Export Variables", classes="dialog-title")
+            
+            yield Label("Select export location:")
+            yield Input(
+                placeholder="Enter path to export file (e.g., /path/to/env_export.json)",
+                id="export-file-input"
+            )
+            
+            yield Label("Export format:")
+            yield Input(
+                placeholder="env, json, or yaml",
+                value="json",
+                id="export-format-input"
+            )
+            
+            yield Label("Export options:")
+            yield Input(
+                placeholder="mask (hide sensitive values) or show (include all values)",
+                value="mask",
+                id="export-options-input"
+            )
+            
+            with Horizontal(classes="dialog-actions"):
+                yield Button("📤 Export", id="confirm-export-btn", variant="success")
+                yield Button("❌ Cancel", id="cancel-export-btn", variant="error")
+    
+    def action_dismiss(self) -> None:
+        """Dismiss the modal."""
+        self.dismiss()
+    
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button presses."""
+        button_id = event.button.id
+
+        if button_id == "confirm-export-btn":
+            self._perform_export()
+        elif button_id == "cancel-export-btn":
+            self.dismiss()
+    
+    def _perform_export(self) -> None:
+        """Perform the export operation."""
+        try:
+            file_input = self.query_one("#export-file-input", Input)
+            format_input = self.query_one("#export-format-input", Input)
+            options_input = self.query_one("#export-options-input", Input)
+            
+            file_path = file_input.value.strip()
+            export_format = format_input.value.strip().lower() or "json"
+            export_options = options_input.value.strip().lower() or "mask"
+            
+            if not file_path:
+                self.notify("Please enter a file path", severity="error")
+                return
+            
+            # Convert to Path object and ensure directory exists
+            path = Path(file_path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Get variables to export
+            if export_options == "show":
+                variables = self.manager.load_env()
+            else:  # mask
+                variables = self.manager.list_env(mask=True)
+            
+            # Export based on format
+            if export_format == "json":
+                with open(path, 'w') as f:
+                    json.dump(variables, f, indent=2)
+            elif export_format == "yaml":
+                try:
+                    import yaml
+                    with open(path, 'w') as f:
+                        yaml.dump(variables, f, default_flow_style=False)
+                except ImportError:
+                    self.notify("PyYAML not installed - cannot export to YAML files", severity="error")
+                    return
+            else:  # env format
+                with open(path, 'w') as f:
+                    f.write(f"# Environment variables export\n")
+                    f.write(f"# Generated by EnvCLI\n\n")
+                    for key, value in sorted(variables.items()):
+                        f.write(f"{key}={value}\n")
+            
+            # Check if file was created
+            if path.exists():
+                file_size = path.stat().st_size
+                self.notify(f"✓ Exported {len(variables)} variables to {file_path} ({file_size} bytes)", severity="information")
+            else:
+                self.notify("Export failed - file was not created", severity="error")
+            
+            # Close modal
+            self.dismiss()
+            
+        except Exception as e:
+            self.notify(f"Export failed: {e}", severity="error")

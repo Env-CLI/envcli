@@ -14,6 +14,90 @@ from ...config import get_current_profile, list_profiles
 class ComplianceScreen(Container):
     """Compliance management screen."""
 
+    DEFAULT_CSS = """
+    ComplianceScreen {
+        layout: vertical;
+        height: 100%;
+        padding: 1;
+    }
+
+    .instructions-section {
+        height: auto;
+        margin-bottom: 1;
+    }
+
+    .info-box {
+        background: $surface;
+        border: solid $accent;
+        padding: 1 2;
+        color: $text;
+    }
+
+    .screen-header {
+        text-style: bold;
+        color: $primary;
+        text-align: center;
+        height: 3;
+        content-align: center middle;
+        margin-bottom: 1;
+    }
+
+    .section-title {
+        text-style: bold;
+        color: $primary;
+        height: 2;
+        margin-top: 1;
+        margin-bottom: 1;
+    }
+
+    .compliance-section {
+        height: auto;
+        margin-bottom: 1;
+    }
+
+    .compliance-select {
+        width: 100%;
+        margin-bottom: 1;
+    }
+
+    .button-row {
+        height: auto;
+        align: left middle;
+    }
+
+    .compliance-status {
+        background: $surface;
+        border: solid $border;
+        padding: 1;
+        margin-bottom: 1;
+        height: auto;
+    }
+
+    .compliance-table {
+        height: auto;
+        max-height: 15;
+        margin-bottom: 1;
+    }
+
+    .assessment-results {
+        background: $surface;
+        border: solid $primary;
+        padding: 1;
+        margin-bottom: 1;
+        height: auto;
+        min-height: 8;
+    }
+
+    .recommendations {
+        background: $surface;
+        border: solid $warning;
+        padding: 1;
+        margin-bottom: 1;
+        height: auto;
+        min-height: 5;
+    }
+    """
+
     def __init__(self):
         super().__init__()
         self.compliance_manager = ComplianceFrameworkManager()
@@ -26,6 +110,18 @@ class ComplianceScreen(Container):
         yield Static("✅ Compliance Management", id="compliance-header", classes="screen-header")
 
         with VerticalScroll(id="compliance-content"):
+            # Instructions
+            yield Container(
+                Static(
+                    "💡 How to use:\n"
+                    "1. Select a framework from the dropdown below\n"
+                    "2. Click '🔍 Assess Compliance' to run automated checks\n"
+                    "3. Review results and recommendations below",
+                    classes="info-box"
+                ),
+                classes="instructions-section"
+            )
+
             # Framework selector
             yield Static("📋 Select Compliance Framework", classes="section-title")
             with Container(classes="compliance-section"):
@@ -41,9 +137,9 @@ class ComplianceScreen(Container):
                     classes="compliance-select"
                 )
                 with Horizontal(classes="button-row"):
+                    yield Button("🔍 Assess Compliance", id="assess-btn", variant="primary")
                     yield Button("✅ Enable Framework", id="enable-framework-btn", variant="success")
                     yield Button("❌ Disable Framework", id="disable-framework-btn", variant="error")
-                    yield Button("🔍 Assess Compliance", id="assess-btn", variant="primary")
 
             # Compliance status overview
             yield Static("📊 Compliance Status", classes="section-title")
@@ -196,10 +292,18 @@ class ComplianceScreen(Container):
     async def _assess_compliance(self) -> None:
         """Assess compliance for the selected framework."""
         if not self.selected_framework:
-            self.notify("Please select a framework first", severity="warning")
+            self.notify("⚠️ Please select a framework from the dropdown first", severity="warning", timeout=5)
             return
 
         try:
+            # Check if framework is enabled, if not, enable it automatically
+            frameworks = self.compliance_manager.list_frameworks()
+            if not frameworks.get(self.selected_framework, {}).get("enabled", False):
+                self.notify(f"🔄 Enabling {self.selected_framework.upper()} framework...", severity="information")
+                self.compliance_manager.enable_framework(self.selected_framework)
+                self._load_frameworks()
+                self._update_status()
+
             self.notify(f"🔍 Assessing compliance for {self.selected_framework.upper()}...", severity="information")
             assessment = self.compliance_manager.assess_compliance(
                 self.selected_framework,
@@ -207,7 +311,7 @@ class ComplianceScreen(Container):
             )
 
             if "error" in assessment:
-                self.notify(f"Error: {assessment['error']}", severity="error")
+                self.notify(f"❌ {assessment['error']}", severity="error", timeout=8)
                 return
 
             self.current_assessment = assessment
@@ -217,10 +321,10 @@ class ComplianceScreen(Container):
             self._update_status()
 
             overall = assessment.get("overall_compliance", "unknown")
-            self.notify(f"✅ Assessment complete: {overall.replace('_', ' ').title()}", severity="information")
+            self.notify(f"✅ Assessment complete: {overall.replace('_', ' ').title()}", severity="information", timeout=5)
 
         except Exception as e:
-            self.notify(f"Error assessing compliance: {e}", severity="error")
+            self.notify(f"❌ Error assessing compliance: {str(e)}", severity="error", timeout=8)
 
     def _update_assessment_results(self, assessment: dict) -> None:
         """Update the assessment results display."""
@@ -266,10 +370,16 @@ class ComplianceScreen(Container):
     async def _generate_report(self) -> None:
         """Generate a compliance report."""
         if not self.selected_framework:
-            self.notify("Please select a framework first", severity="warning")
+            self.notify("⚠️ Please select a framework from the dropdown first", severity="warning", timeout=5)
             return
 
         try:
+            # Check if framework is enabled
+            frameworks = self.compliance_manager.list_frameworks()
+            if not frameworks.get(self.selected_framework, {}).get("enabled", False):
+                self.notify(f"⚠️ Framework {self.selected_framework.upper()} is not enabled. Enable it first or run an assessment.", severity="warning", timeout=8)
+                return
+
             profiles = list_profiles()
             self.notify(f"📄 Generating compliance report for {len(profiles)} profiles...", severity="information")
 
@@ -285,11 +395,12 @@ class ComplianceScreen(Container):
 
             self.notify(
                 f"✅ Report generated: {compliant}/{total} profiles compliant ({rate:.1f}%)",
-                severity="information"
+                severity="information",
+                timeout=8
             )
 
         except Exception as e:
-            self.notify(f"Error generating report: {e}", severity="error")
+            self.notify(f"❌ Error generating report: {str(e)}", severity="error", timeout=8)
 
     async def _refresh_compliance(self) -> None:
         """Refresh the compliance screen."""

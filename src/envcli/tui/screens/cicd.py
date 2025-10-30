@@ -184,13 +184,20 @@ class CICDScreen(Container):
     
     async def _load_secrets(self) -> None:
         """Load secrets from CI/CD pipeline."""
+        # Check if we're actually in a CI/CD environment
+        validation = self.pipeline.validate_pipeline_setup()
+
+        if not validation['detected']:
+            self.notify("⚠️ No CI/CD pipeline detected. This feature only works when running inside a CI/CD environment (GitHub Actions, GitLab CI, Jenkins, etc.)", severity="warning", timeout=10)
+            return
+
         success = self.pipeline.load_pipeline_secrets(self.current_profile)
-        
+
         if success:
             self.notify("✅ Secrets loaded successfully", severity="information")
             await self._load_pipeline_vars()
         else:
-            self.notify("❌ Failed to load secrets", severity="error")
+            self.notify("❌ Failed to load secrets. Make sure secrets are configured in your CI/CD pipeline.", severity="error", timeout=8)
     
     async def _generate_config(self) -> None:
         """Generate pipeline configuration."""

@@ -13,11 +13,8 @@ class Header(Container):
     
     DEFAULT_CSS = """
     Header {
-        dock: top;
-        height: 3;
-        background: #1A2332;
-        color: #E0E0E0;
-        border-bottom: solid #37474F;
+    dock: top;
+    height: 3;
     }
     
     .header-left {

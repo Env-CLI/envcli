@@ -11,7 +11,7 @@ A comprehensive environment variable management platform with AI-powered governa
 pip install git+https://github.com/Nom-nom-hub/env-cli.git
 
 # Using uv (faster)
-uv pip install git+https://github.com/Nom-nom-hub/env-cli.git
+uv tool install git+https://github.com/Nom-nom-hub/env-cli.git
 ```
 
 ### Install from Release

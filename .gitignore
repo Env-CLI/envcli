@@ -83,3 +83,6 @@ logs/
 # Distribution
 *.whl
 *.tar.gz
+
+# Agent guidelines
+AGENTS.md

@@ -1,0 +1,5 @@
+{
+  "TEST_VAR_1": "value1",
+  "TEST_VAR_2": "value2",
+  "DATABASE_URL": "postgres://localhost:5432/mydb"
+}
